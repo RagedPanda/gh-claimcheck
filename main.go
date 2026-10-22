@@ -9,16 +9,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
 	"github.com/cli/go-gh/v2/pkg/term"
 
 	"github.com/RagedPanda/gh-claimcheck/internal/check"
+	"github.com/RagedPanda/gh-claimcheck/internal/deps"
 	"github.com/RagedPanda/gh-claimcheck/internal/facts"
 	"github.com/RagedPanda/gh-claimcheck/internal/github"
+	"github.com/RagedPanda/gh-claimcheck/internal/manifest"
 	"github.com/RagedPanda/gh-claimcheck/internal/parallel"
 	"github.com/RagedPanda/gh-claimcheck/internal/ref"
+	"github.com/RagedPanda/gh-claimcheck/internal/registry"
 	"github.com/RagedPanda/gh-claimcheck/internal/render"
 	"github.com/RagedPanda/gh-claimcheck/internal/search"
 )
@@ -38,9 +43,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	var err error
 	code := 0
-	if len(args) > 0 && args[0] == "find" {
+	switch {
+	case len(args) > 0 && args[0] == "find":
 		err = runFind(args[1:], stdout, palette)
-	} else {
+	case len(args) > 0 && args[0] == "deps":
+		err = runDeps(args[1:], stdout, stderr, palette)
+	default:
 		code, err = runCheck(args, stdout, palette)
 	}
 	if errors.Is(err, errHelp) {
@@ -107,6 +115,11 @@ func runFind(args []string, stdout io.Writer, palette render.Palette) error {
 	for index, issue := range found {
 		candidates[index] = render.Candidate{Issue: issue, HasCheck: config.check}
 	}
+	return showCandidates(ctx, client, config, candidates, stdout, now, palette)
+}
+
+// showCandidates optionally checks the found issues, then prints them.
+func showCandidates(ctx context.Context, client *github.Client, config findConfig, candidates []render.Candidate, stdout io.Writer, now time.Time, palette render.Palette) error {
 	if config.check {
 		candidates = withChecks(ctx, client, candidates, now)
 	}
@@ -118,6 +131,126 @@ func runFind(args []string, stdout io.Writer, palette render.Palette) error {
 	}
 	fmt.Fprint(stdout, render.Candidates(candidates, now, palette))
 	return nil
+}
+
+// searchChunk bounds the repo: qualifiers in one search query.
+const searchChunk = 50
+
+func runDeps(args []string, stdout, stderr io.Writer, palette render.Palette) error {
+	progress := progressWriter(stderr)
+	config, err := parseDeps(args, stdout)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Stat(config.dir); err != nil || !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", config.dir)
+	}
+	scan, err := manifest.Discover(os.DirFS(config.dir))
+	if err != nil {
+		return err
+	}
+	if len(scan.Files) == 0 {
+		return fmt.Errorf("no manifest or lock files in %s (see gh claimcheck deps --help for the files it reads)", config.dir)
+	}
+	dependencies := deps.Keep(scan.Dependencies, config.filter)
+	fmt.Fprintf(progress, "Read %d files: %d dependencies (%d direct). Looking up their repositories...\n",
+		len(scan.Files), len(dependencies), countDirect(dependencies))
+	ctx, now := context.Background(), time.Now()
+	cachePath := registryCachePath()
+	cache := registry.DecodeCache(readOrEmpty(cachePath))
+	resolution := registry.New().Resolve(ctx, dependencies, cache, now)
+	writeCache(cachePath, cache.With(resolution.Looked, now))
+	if len(resolution.Failed) > 0 {
+		fmt.Fprintf(stderr, "claimcheck: could not look up %d of %d dependencies%s; they were skipped.\n",
+			len(resolution.Failed), len(dependencies), rateLimitNote(resolution.RateLimited))
+	}
+	repoByKey := resolution.Repos
+	if config.list {
+		if config.find.json {
+			return writeJSON(stdout, jsonDependencies(dependencies, repoByKey, resolution.Failed))
+		}
+		fmt.Fprint(stdout, render.Dependencies(dependencies, repoByKey, resolution.Failed, palette))
+		return nil
+	}
+	targets := deps.Targets(dependencies, repoByKey)
+	if len(targets) == 0 {
+		return fmt.Errorf("found no GitHub repositories among %d dependencies in %s (try --list)", len(dependencies), config.dir)
+	}
+	client, err := github.New()
+	if err != nil {
+		return err
+	}
+	chunks := deps.SearchGroups(targets, searchChunk)
+	fmt.Fprintf(progress, "Searching %d repositories...\n", len(targets))
+	results := make([][]facts.Candidate, len(chunks))
+	errs := make([]error, len(chunks))
+	parallel.ForEach(len(chunks), concurrency, func(index int) {
+		options := config.find.options
+		options.Repos = chunks[index]
+		results[index], errs[index] = client.FindIssues(ctx, search.Query(options, now), config.find.limit, search.HasStars(config.find.minStars))
+	})
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	found := deps.Rank(results, targets, config.find.limit)
+	candidates := make([]render.Candidate, len(found))
+	for index, each := range found {
+		candidates[index] = render.Candidate{Issue: each.Issue, HasCheck: config.find.check, Via: each.Target.Via}
+	}
+	return showCandidates(ctx, client, config.find, candidates, stdout, now, palette)
+}
+
+func rateLimitNote(hosts []string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%s asked us to slow down; run it again in a few minutes, answers so far are cached)", strings.Join(hosts, ", "))
+}
+
+// registryCachePath is where registry answers are kept between runs, or "" if there is no cache directory.
+func registryCachePath() string {
+	directory, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(directory, "gh-claimcheck", "registry.json")
+}
+
+func readOrEmpty(path string) []byte {
+	if path == "" {
+		return nil
+	}
+	content, _ := os.ReadFile(path)
+	return content
+}
+
+// writeCache saves the cache; a cache that cannot be written only makes the next run slower.
+func writeCache(path string, cache registry.Cache) {
+	if path == "" || os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	temporary := path + ".tmp"
+	if os.WriteFile(temporary, cache.Encode(), 0o644) == nil {
+		_ = os.Rename(temporary, path)
+	}
+}
+
+// progressWriter shows progress only to a person watching, never in pipes or logs.
+func progressWriter(stderr io.Writer) io.Writer {
+	if file, ok := stderr.(*os.File); ok && term.IsTerminal(file) {
+		return stderr
+	}
+	return io.Discard
+}
+
+func countDirect(dependencies []manifest.Dependency) int {
+	count := 0
+	for _, dependency := range dependencies {
+		if dependency.Direct {
+			count++
+		}
+	}
+	return count
 }
 
 func parseIssues(inputs []string, defaultRepo string) ([]ref.Issue, error) {
@@ -218,6 +351,7 @@ type jsonCandidate struct {
 	Stars     int           `json:"stars"`
 	Labels    []string      `json:"labels"`
 	CreatedAt time.Time     `json:"createdAt"`
+	Via       string        `json:"via,omitempty"`
 	Error     string        `json:"error,omitempty"`
 	Report    *check.Report `json:"report,omitempty"`
 }
@@ -226,6 +360,7 @@ func jsonCandidates(candidates []render.Candidate) []jsonCandidate {
 	out := make([]jsonCandidate, len(candidates))
 	for index, candidate := range candidates {
 		out[index] = toJSONCandidate(candidate.Issue, candidate.Report, candidate.Err)
+		out[index].Via = candidate.Via
 	}
 	return out
 }
@@ -239,6 +374,20 @@ func toJSONCandidate(issue facts.Candidate, report *check.Report, err error) jso
 		converted.Error = err.Error()
 	}
 	return converted
+}
+
+type jsonDependency struct {
+	manifest.Dependency
+	Repo         string `json:"repo,omitempty"`
+	LookupFailed bool   `json:"lookupFailed,omitempty"`
+}
+
+func jsonDependencies(dependencies []manifest.Dependency, repoByKey map[string]string, failed map[string]bool) []jsonDependency {
+	out := make([]jsonDependency, len(dependencies))
+	for index, dependency := range dependencies {
+		out[index] = jsonDependency{Dependency: dependency, Repo: repoByKey[dependency.Key()], LookupFailed: failed[dependency.Key()]}
+	}
+	return out
 }
 
 func nonNil(values []string) []string {

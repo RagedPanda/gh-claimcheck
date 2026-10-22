@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/RagedPanda/gh-claimcheck/internal/check"
+	"github.com/RagedPanda/gh-claimcheck/internal/deps"
 	"github.com/RagedPanda/gh-claimcheck/internal/render"
 	"github.com/RagedPanda/gh-claimcheck/internal/search"
 )
@@ -17,6 +18,7 @@ const checkUsage = `Check whether an issue is free to work on before you claim i
 USAGE
   gh claimcheck <issue>... [flags]
   gh claimcheck find [flags]
+  gh claimcheck deps [dir] [flags]
 
 ISSUE can be a URL, owner/repo#123, or #123 / 123 inside a clone (or with --repo).
 
@@ -37,6 +39,7 @@ EXAMPLES
   gh claimcheck cli/cli#123 cli/cli#456 --brief
   gh claimcheck 123                     # inside a clone of the repo
   gh claimcheck find --help             # find issues to work on
+  gh claimcheck deps --help             # find issues in the libraries you use
 `
 
 const findUsage = `Find open, unassigned issues with no linked PR, and optionally check each one.
@@ -67,6 +70,46 @@ EXAMPLES
   gh claimcheck find --lang typescript --min-stars 1000 --check --go-only
 `
 
+const depsUsage = `Find issues to work on in the libraries your project uses, and the
+libraries they use.
+
+USAGE
+  gh claimcheck deps [dir] [flags]
+
+It reads every manifest and lock file under dir (default: the current
+directory), looks each package up in its registry to find its GitHub
+repository, and searches those repositories for open, unassigned issues with
+no linked PR. Issues in your direct dependencies come first.
+
+Reads: package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, go.mod,
+requirements*.txt, pyproject.toml, Pipfile, poetry.lock, uv.lock, Cargo.toml,
+Cargo.lock, build.gradle(.kts), libs.versions.toml, pom.xml, Gemfile(.lock),
+composer.json/.lock, pubspec.yaml/.lock, Package.swift, Package.resolved,
+Podfile.lock, *.csproj, Directory.Packages.props, packages.lock.json.
+
+FLAGS
+      --direct-only         Only libraries your manifests list, not their dependencies
+      --no-dev              Skip development and test dependencies
+      --list                Print each library and its repository, without searching
+      --label name          Require a label (repeatable)
+      --good-first-issue    Only issues labelled "good first issue"
+      --help-wanted         Only issues labelled "help wanted"
+      --days n              Created in the last n days (default 60, 0 for any)
+      --max-comments n      At most n comments (default 3, -1 for any)
+  -s, --min-stars n         Only repositories with at least n stars
+  -L, --limit n             Number of issues (default 20, max 100)
+  -c, --check               Run the full check on each result
+      --go-only             With --check, only show issues that come out GO
+      --json                Print results as JSON
+  -h, --help                Show this help
+
+EXAMPLES
+  gh claimcheck deps                          # the project in this directory
+  gh claimcheck deps ~/code/my-app --direct-only --check
+  gh claimcheck deps --good-first-issue --no-dev
+  gh claimcheck deps --list --json            # which repositories it would search
+`
+
 // errHelp signals that help was printed and the program should exit cleanly.
 var errHelp = errors.New("help requested")
 
@@ -85,6 +128,13 @@ type findConfig struct {
 	check    bool
 	goOnly   bool
 	json     bool
+}
+
+type depsConfig struct {
+	find   findConfig
+	dir    string
+	filter deps.Filter
+	list   bool
 }
 
 // listFlag collects a repeatable, comma-separable flag.
@@ -121,11 +171,47 @@ func parseCheck(args []string, usageOut io.Writer) (checkConfig, error) {
 }
 
 func parseFind(args []string, usageOut io.Writer) (findConfig, error) {
-	config := findConfig{options: search.Options{Days: 60, MaxComments: 3}, limit: 20}
+	config := defaultFind()
 	flags := newFlagSet("claimcheck find", findUsage, usageOut)
 	listVar(flags, &config.options.Repos, "repo", "R")
 	listVar(flags, &config.options.Orgs, "org")
 	listVar(flags, &config.options.Languages, "lang", "l")
+	issueFilterFlags(flags, &config)
+	positional, err := parseInterspersed(flags, args)
+	if err != nil {
+		return config, err
+	}
+	config.options.Terms = strings.Join(positional, " ")
+	return finishFind(config)
+}
+
+func parseDeps(args []string, usageOut io.Writer) (depsConfig, error) {
+	config := depsConfig{find: defaultFind(), dir: "."}
+	flags := newFlagSet("claimcheck deps", depsUsage, usageOut)
+	boolFlag(flags, &config.filter.DirectOnly, "direct-only")
+	boolFlag(flags, &config.filter.NoDev, "no-dev")
+	boolFlag(flags, &config.list, "list")
+	issueFilterFlags(flags, &config.find)
+	positional, err := parseInterspersed(flags, args)
+	if err != nil {
+		return config, err
+	}
+	if len(positional) > 1 {
+		return config, fmt.Errorf("deps takes one directory, got %d (see --help)", len(positional))
+	}
+	if len(positional) == 1 {
+		config.dir = positional[0]
+	}
+	config.find, err = finishFind(config.find)
+	return config, err
+}
+
+func defaultFind() findConfig {
+	return findConfig{options: search.Options{Days: 60, MaxComments: 3}, limit: 20}
+}
+
+// issueFilterFlags registers the flags find and deps share: which issues to keep and how to show them.
+func issueFilterFlags(flags *flag.FlagSet, config *findConfig) {
 	listVar(flags, &config.options.Labels, "label")
 	boolFlag(flags, &config.options.GoodFirstIssue, "good-first-issue")
 	boolFlag(flags, &config.options.HelpWanted, "help-wanted")
@@ -136,17 +222,14 @@ func parseFind(args []string, usageOut io.Writer) (findConfig, error) {
 	boolFlag(flags, &config.check, "check", "c")
 	boolFlag(flags, &config.goOnly, "go-only")
 	boolFlag(flags, &config.json, "json")
-	positional, err := parseInterspersed(flags, args)
-	if err != nil {
-		return config, err
-	}
+}
+
+// finishFind validates the shared flags; --go-only implies --check.
+func finishFind(config findConfig) (findConfig, error) {
 	if config.limit < 1 || config.limit > 100 {
 		return config, fmt.Errorf("--limit must be between 1 and 100")
 	}
-	if config.goOnly && !config.check {
-		config.check = true
-	}
-	config.options.Terms = strings.Join(positional, " ")
+	config.check = config.check || config.goOnly
 	return config, nil
 }
 

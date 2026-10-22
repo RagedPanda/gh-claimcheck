@@ -47,6 +47,31 @@ func TestParseFind(t *testing.T) {
 	}
 }
 
+func TestParseDeps(t *testing.T) {
+	config, err := parseDeps([]string{"--no-dev", "../app", "--good-first-issue", "--direct-only", "-L", "5", "--list"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.dir != "../app" || !config.filter.NoDev || !config.filter.DirectOnly || !config.list {
+		t.Errorf("config = %+v", config)
+	}
+	if !config.find.options.GoodFirstIssue || config.find.limit != 5 || config.find.options.Days != 60 {
+		t.Errorf("shared flags = %+v", config.find)
+	}
+	if defaults, _ := parseDeps(nil, io.Discard); defaults.dir != "." {
+		t.Errorf("default dir = %q, want .", defaults.dir)
+	}
+	if _, err := parseDeps([]string{"a", "b"}, io.Discard); err == nil {
+		t.Error("two directories should be rejected")
+	}
+	if _, err := parseDeps([]string{"--repo", "acme/lib"}, io.Discard); err == nil {
+		t.Error("--repo is a find flag and should be rejected by deps")
+	}
+	if _, err := parseDeps([]string{"--help"}, io.Discard); !errors.Is(err, errHelp) {
+		t.Errorf("--help error = %v", err)
+	}
+}
+
 func TestExitCode(t *testing.T) {
 	result := func(verdict string) render.Result { return render.Result{Report: check.Report{Verdict: verdict}} }
 	cases := []struct {
