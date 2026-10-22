@@ -28,11 +28,11 @@ type Client struct {
 func New() (*Client, error) {
 	graphql, err := api.DefaultGraphQLClient()
 	if err != nil {
-		return nil, err
+		return nil, explainSetup(err)
 	}
 	rest, err := api.NewRESTClient(api.ClientOptions{Headers: map[string]string{"Accept": "application/vnd.github.raw+json"}})
 	if err != nil {
-		return nil, err
+		return nil, explainSetup(err)
 	}
 	return &Client{graphql: graphql, rest: rest}, nil
 }
@@ -156,10 +156,25 @@ func mergePRs(linked, matched []facts.PullRequest) []facts.PullRequest {
 	return merged
 }
 
-func explain(err error, issue ref.Issue) error {
+// errNotLoggedIn is returned when there is no usable gh login.
+var errNotLoggedIn = errors.New("not logged in to GitHub; run `gh auth login`")
+
+// explainSetup turns go-gh's missing-token error into the fix.
+func explainSetup(err error) error {
+	if strings.Contains(err.Error(), "authentication token not found") {
+		return errNotLoggedIn
+	}
+	return err
+}
+
+func unauthorized(err error) bool {
 	var httpError *api.HTTPError
-	if errors.As(err, &httpError) && httpError.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not logged in to GitHub; run `gh auth login`")
+	return errors.As(err, &httpError) && httpError.StatusCode == http.StatusUnauthorized
+}
+
+func explain(err error, issue ref.Issue) error {
+	if unauthorized(err) {
+		return errNotLoggedIn
 	}
 	var graphqlError *api.GraphQLError
 	if errors.As(err, &graphqlError) && strings.Contains(err.Error(), "Could not resolve") {
@@ -196,9 +211,8 @@ func nonEmpty(values ...string) []string {
 }
 
 func explainSearch(err error) error {
-	var httpError *api.HTTPError
-	if errors.As(err, &httpError) && httpError.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("not logged in to GitHub; run `gh auth login`")
+	if unauthorized(err) {
+		return errNotLoggedIn
 	}
 	return fmt.Errorf("search failed: %w", err)
 }
