@@ -4,7 +4,7 @@
 
 `gh-claimcheck` is a [GitHub CLI](https://cli.github.com) extension for open source contributors. Give it an issue, and it tells you if someone already has an open pull request for it, if someone claimed it in the comments, if the project moved somewhere else, or if maintainers don't merge outside PRs. You get a clear **GO**, **CAUTION** or **SKIP** in a few seconds, so you don't spend an evening on a fix that turns out to be a duplicate.
 
-It can also **find** open, unassigned issues with no linked PR in the languages and projects you care about, and check each one for you.
+It can also **find** open, unassigned issues with no linked PR in the languages and projects you care about, or in **the libraries your own project depends on**, and check each one for you.
 
 ```console
 $ gh claimcheck date-fns/tz#80
@@ -124,6 +124,57 @@ CAUTION  anomalyco/opencode#58123           ★220.0k 1c  today  Stuck on a sing
 | `--go-only` | | Show only results that come out GO (implies `--check`) |
 | `--json` | | JSON output |
 
+## Find issues in the libraries you use
+
+The best first contribution is often to a library you already use: you know what it does, and you can test the fix in your own project. `gh claimcheck deps` reads your project's manifests and lock files, finds each library's GitHub repository, and searches them all for open, unclaimed issues. Lock files add the libraries your libraries use.
+
+```sh
+# The project in the current directory
+gh claimcheck deps
+
+# Another directory; only the libraries you list yourself, each checked
+gh claimcheck deps ~/code/my-app --direct-only --check
+
+# Beginner-friendly issues, skipping test and build tools
+gh claimcheck deps --good-first-issue --no-dev
+
+# Just show which repositories it would search
+gh claimcheck deps --list
+```
+
+```console
+$ gh claimcheck deps --days 0 --max-comments -1 -L 4   # in this repository
+cli/go-gh#220  via github.com/cli/go-gh/v2  ★443  0c  171d  `(*GraphQLClient).DoWithContext` should expose response headers such as `x-ra...
+cli/go-gh#212  via github.com/cli/go-gh/v2  ★443  0c  251d  Add option for env var to bypass certificate checks
+cli/go-gh#189  via github.com/cli/go-gh/v2  ★443  2c  556d  Migrate from `go-yaml/yaml` to `goccy/go-yaml`
+cli/go-gh#167  via github.com/cli/go-gh/v2  ★443  1c  870d  Support passing httptest URLs in api.ClientOptions
+```
+
+Issues in your direct dependencies come first, then the newest. It looks in every directory under the one you give it, skipping `node_modules`, `vendor`, build output and virtual environments, so monorepos work.
+
+| Ecosystem | Files it reads | Repository looked up on |
+|---|---|---|
+| JavaScript, TypeScript | `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml` | npm |
+| Python | `requirements*.txt`, `requirements*.in`, `pyproject.toml` (PEP 621, Poetry, dependency groups), `Pipfile`, `poetry.lock`, `uv.lock` | PyPI |
+| Go | `go.mod` | the module path, or its `go-import` tag |
+| Rust | `Cargo.toml`, `Cargo.lock` | crates.io |
+| Android, Kotlin, Java | `build.gradle`, `build.gradle.kts`, `libs.versions.toml`, `pom.xml` | Maven Central, via deps.dev |
+| Ruby | `Gemfile`, `Gemfile.lock`, `gems.rb`, `gems.locked` | RubyGems |
+| PHP | `composer.json`, `composer.lock` | Packagist |
+| Dart, Flutter | `pubspec.yaml`, `pubspec.lock` | pub.dev |
+| Swift, iOS | `Package.swift`, `Package.resolved`, `Podfile.lock` | the package URL, CocoaPods |
+| .NET | `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `packages.lock.json` | NuGet, via deps.dev |
+
+It takes the same issue flags as `find` (`--label`, `--good-first-issue`, `--help-wanted`, `--days`, `--max-comments`, `--min-stars`, `--limit`, `--check`, `--go-only`, `--json`), plus:
+
+| Flag | Meaning |
+|---|---|
+| `--direct-only` | Only libraries your manifests list, not their dependencies |
+| `--no-dev` | Skip development and test dependencies |
+| `--list` | Print each library and its repository, without searching |
+
+Libraries that aren't on GitHub (private packages, AndroidX, projects hosted elsewhere) are skipped. Registry answers are cached for a week, so running it again on the same project is quick.
+
 ## For scripts and power users
 
 Check several issues at once, in parallel:
@@ -161,6 +212,7 @@ gh claimcheck owner/repo#42 --json | jq -r '.[0].findings[] | select(.level == "
 ## How it works
 
 - **Read-only.** It never comments, assigns, forks or opens anything. It uses the token from your `gh` login, so it sees the same repositories you can.
+- **Your code stays local.** `deps` reads manifest and lock files on your machine and only sends package names to their public registries (npm, PyPI, crates.io and so on) to find each repository. Nothing else is uploaded.
 - **Light on rate limits.** One GraphQL query per issue gets the issue, comments, linked PRs, cross-references, community files and recent merges. One or two searches look for similar PR titles. Checks run three at a time.
 - **Heuristics, not certainty.** Claim and pushback detection read plain English comments. A **CAUTION** means "go and look", not "don't". When in doubt, ask on the issue; maintainers almost always prefer that.
 
@@ -190,6 +242,8 @@ go test ./...
 - `internal/text`: comment and README parsing (claims, pushback, AI policy, moved notices, title similarity)
 - `internal/github`: the only package that talks to the API
 - `internal/render`: terminal output
+- `internal/manifest`: manifest and lock file parsers (pure; add a new format here)
+- `internal/registry`: package to GitHub repository lookup
 
 Please run `gh claimcheck` on the issue first. It's only fair.
 
@@ -197,4 +251,4 @@ Please run `gh claimcheck` on the issue first. It's only fair.
 
 [MIT](LICENSE)
 
-<!-- Keywords: gh extension, GitHub CLI extension, gh cli plugin, open source contribution, first contribution, first-timers, good first issue finder, help wanted, hacktoberfest, check issue before claiming, avoid duplicate pull requests, duplicate PR detection, issue triage, is this issue taken, contributor tool, beginner friendly open source, developer tools -->
+<!-- Keywords: gh extension, GitHub CLI extension, gh cli plugin, open source contribution, first contribution, first-timers, good first issue finder, help wanted, contribute to your dependencies, dependency issue finder, package.json, requirements.txt, go.mod, Cargo.toml, build.gradle, hacktoberfest, check issue before claiming, avoid duplicate pull requests, duplicate PR detection, issue triage, is this issue taken, contributor tool, beginner friendly open source, developer tools -->
