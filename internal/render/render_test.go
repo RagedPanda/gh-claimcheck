@@ -8,6 +8,7 @@ import (
 
 	"github.com/RagedPanda/gh-claimcheck/internal/check"
 	"github.com/RagedPanda/gh-claimcheck/internal/facts"
+	"github.com/RagedPanda/gh-claimcheck/internal/manifest"
 )
 
 func sampleResult() Result {
@@ -70,5 +71,33 @@ func TestCandidates(t *testing.T) {
 	}
 	if empty := Candidates(nil, now, Plain); !strings.HasPrefix(empty, "No matching issues") {
 		t.Errorf("empty output = %q", empty)
+	}
+}
+
+func TestCandidatesVia(t *testing.T) {
+	now := time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
+	issue := facts.Candidate{Repo: "babel/babel", Number: 7, Title: "Crash", CreatedAt: now}
+	out := Candidates([]Candidate{{Issue: issue, Via: "@babel/core"}, {Issue: issue}}, now, Plain)
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if !strings.Contains(lines[0], "babel/babel#7  via @babel/core") || strings.Contains(lines[1], "via") {
+		t.Errorf("via column wrong:\n%s", out)
+	}
+}
+
+func TestDependencies(t *testing.T) {
+	dependencies := []manifest.Dependency{
+		{Name: "react", Ecosystem: manifest.NPM, Direct: true},
+		{Name: "vitest", Ecosystem: manifest.NPM, Direct: true, Dev: true},
+		{Name: "left-pad-private", Ecosystem: manifest.NPM},
+		{Name: "timed-out", Ecosystem: manifest.NPM},
+	}
+	out := Dependencies(dependencies, map[string]string{"npm:react": "facebook/react", "npm:vitest": "vitest-dev/vitest"}, map[string]bool{"npm:timed-out": true}, Plain)
+	for _, want := range []string{"npm  react             direct       facebook/react", "direct, dev  vitest-dev/vitest", "transitive   not on GitHub", "timed-out         transitive   lookup failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if empty := Dependencies(nil, nil, nil, Plain); !strings.HasPrefix(empty, "No dependencies found") {
+		t.Errorf("empty = %q", empty)
 	}
 }

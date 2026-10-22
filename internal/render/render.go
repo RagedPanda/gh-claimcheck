@@ -10,6 +10,7 @@ import (
 
 	"github.com/RagedPanda/gh-claimcheck/internal/check"
 	"github.com/RagedPanda/gh-claimcheck/internal/facts"
+	"github.com/RagedPanda/gh-claimcheck/internal/manifest"
 )
 
 // Palette colours output. Plain returns text unchanged, for pipes and NO_COLOR.
@@ -76,6 +77,7 @@ type Candidate struct {
 	Report   *check.Report
 	Err      error
 	HasCheck bool
+	Via      string // the dependency that led to this issue, for gh claimcheck deps
 }
 
 // Candidates renders search results as a table.
@@ -93,6 +95,11 @@ func Candidates(candidates []Candidate, now time.Time, palette Palette) string {
 		}
 		columns = append(columns,
 			fmt.Sprintf("%s#%d", issue.Repo, issue.Number),
+		)
+		if candidate.Via != "" {
+			columns = append(columns, palette.Gray("via "+clip(candidate.Via, 30)))
+		}
+		columns = append(columns,
 			palette.Gray(fmt.Sprintf("★%s", compact(issue.Stars))),
 			palette.Gray(fmt.Sprintf("%dc", issue.Comments)),
 			palette.Gray(age(issue.CreatedAt, now)),
@@ -176,4 +183,33 @@ func same(value string) string { return value }
 
 func ansi(code string) func(string) string {
 	return func(value string) string { return "\x1b[" + code + "m" + value + "\x1b[0m" }
+}
+
+// Dependencies lists each dependency with the GitHub repository it resolved to.
+// Failed marks those whose registry lookup failed.
+func Dependencies(dependencies []manifest.Dependency, repoByKey map[string]string, failed map[string]bool, palette Palette) string {
+	if len(dependencies) == 0 {
+		return "No dependencies found. Run it in a project directory, or pass one: gh claimcheck deps path/to/project\n"
+	}
+	var out strings.Builder
+	writer := tabwriter.NewWriter(&out, 0, 0, 2, ' ', 0)
+	for _, dependency := range dependencies {
+		kind := "direct"
+		if !dependency.Direct {
+			kind = "transitive"
+		}
+		if dependency.Dev {
+			kind += ", dev"
+		}
+		repo := repoByKey[dependency.Key()]
+		switch {
+		case failed[dependency.Key()]:
+			repo = palette.Yellow("lookup failed")
+		case repo == "":
+			repo = palette.Gray("not on GitHub or not found")
+		}
+		fmt.Fprintln(writer, strings.Join([]string{palette.Gray(dependency.Ecosystem), clip(dependency.Name, 60), palette.Gray(kind), repo}, "\t"))
+	}
+	writer.Flush()
+	return out.String()
 }
