@@ -6,6 +6,7 @@ package registry
 import (
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -52,15 +53,26 @@ func pypiCandidates(body []byte) []string {
 	if json.Unmarshal(body, &document) != nil {
 		return nil
 	}
-	var preferred, others []string
-	for label, url := range document.Info.ProjectURLs {
+	preferred, others := sourceFirst(document.Info.ProjectURLs)
+	return append(append(preferred, document.Info.HomePage), others...)
+}
+
+// sourceFirst splits labelled links into those that look like source or issue
+// links and the rest, each sorted by label so the choice is stable.
+func sourceFirst(links map[string]string) (preferred, others []string) {
+	labels := make([]string, 0, len(links))
+	for label := range links {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
 		if sourceLabel.MatchString(label) {
-			preferred = append(preferred, url)
+			preferred = append(preferred, links[label])
 		} else {
-			others = append(others, url)
+			others = append(others, links[label])
 		}
 	}
-	return append(append(preferred, document.Info.HomePage), others...)
+	return preferred, others
 }
 
 // cratesCandidates reads a crates.io/api/v1/crates/<name> document.
@@ -137,6 +149,87 @@ func cocoapodsCandidates(body []byte) []string {
 		return nil
 	}
 	return []string{document.Source.Git, document.Homepage}
+}
+
+// jsrCandidates reads a jsr.io/api/scopes/<scope>/packages/<name> document.
+func jsrCandidates(body []byte) []string {
+	var document struct {
+		GitHubRepository *struct{ Owner, Name string } `json:"githubRepository"`
+	}
+	if json.Unmarshal(body, &document) != nil || document.GitHubRepository == nil {
+		return nil
+	}
+	return []string{"github.com/" + document.GitHubRepository.Owner + "/" + document.GitHubRepository.Name}
+}
+
+// condaCandidates reads an api.anaconda.org/package/<channel>/<name> document.
+func condaCandidates(body []byte) []string {
+	var document struct {
+		DevURL       string `json:"dev_url"`
+		SourceGitURL string `json:"source_git_url"`
+		Home         string
+	}
+	if json.Unmarshal(body, &document) != nil {
+		return nil
+	}
+	return []string{document.DevURL, document.SourceGitURL, document.Home}
+}
+
+// hexCandidates reads a hex.pm/api/packages/<name> document's labelled links.
+func hexCandidates(body []byte) []string {
+	var document struct {
+		Meta struct{ Links map[string]string }
+	}
+	if json.Unmarshal(body, &document) != nil {
+		return nil
+	}
+	preferred, others := sourceFirst(document.Meta.Links)
+	return append(preferred, others...)
+}
+
+// homepageCandidates reads documents whose only source link is "homepage", such
+// as a vcpkg port's vcpkg.json.
+func homepageCandidates(body []byte) []string {
+	var document struct{ Homepage string }
+	if json.Unmarshal(body, &document) != nil {
+		return nil
+	}
+	return []string{document.Homepage}
+}
+
+// clojarsCandidates reads a clojars.org/api/artifacts/<group>/<artifact> document.
+func clojarsCandidates(body []byte) []string {
+	var document struct {
+		SCM      struct{ URL string }
+		Homepage string
+	}
+	if json.Unmarshal(body, &document) != nil {
+		return nil
+	}
+	return []string{document.SCM.URL, document.Homepage}
+}
+
+var (
+	conanFolder   = regexp.MustCompile(`(?m)^\s*folder:\s*["']?([\w.-]+)`)
+	conanHomepage = regexp.MustCompile(`(?m)^\s*homepage\s*=\s*["']([^"']+)["']`)
+)
+
+// conanRecipeFolder reads the folder of a conan-center-index recipe's newest
+// version from its config.yml, which lists versions newest first.
+func conanRecipeFolder(body []byte) string {
+	if match := conanFolder.FindSubmatch(body); match != nil {
+		return string(match[1])
+	}
+	return ""
+}
+
+// conanCandidates reads a recipe's homepage. Its "url" attribute is always
+// conan-center-index itself, so it is not a candidate.
+func conanCandidates(body []byte) []string {
+	if match := conanHomepage.FindSubmatch(body); match != nil {
+		return []string{string(match[1])}
+	}
+	return nil
 }
 
 // depsDevDefaultVersion reads the default version from an api.deps.dev package document.

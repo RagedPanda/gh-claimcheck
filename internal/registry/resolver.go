@@ -41,8 +41,25 @@ var lookups = map[string]lookup{
 	manifest.CocoaPods: {func(name string) string {
 		return "https://trunk.cocoapods.org/api/v1/pods/" + url.PathEscape(name) + "/specs/latest"
 	}, cocoapodsCandidates},
-	manifest.Go: {func(name string) string { return "https://" + name + "?go-get=1" }, goImportCandidates},
+	manifest.Go:  {func(name string) string { return "https://" + name + "?go-get=1" }, goImportCandidates},
+	manifest.JSR: {jsrURL, jsrCandidates},
+	manifest.Conda: {func(name string) string {
+		return "https://api.anaconda.org/package/conda-forge/" + url.PathEscape(name)
+	}, condaCandidates},
+	manifest.Hex: {func(name string) string { return "https://hex.pm/api/packages/" + url.PathEscape(name) }, hexCandidates},
+	manifest.Vcpkg: {func(name string) string {
+		return "https://raw.githubusercontent.com/microsoft/vcpkg/master/ports/" + url.PathEscape(name) + "/vcpkg.json"
+	}, homepageCandidates},
+	manifest.Clojars: {func(name string) string { return "https://clojars.org/api/artifacts/" + escapeSegments(name) }, clojarsCandidates},
 }
+
+// jsrURL addresses a JSR package such as "@std/path".
+func jsrURL(name string) string {
+	scope, packageName, _ := strings.Cut(strings.TrimPrefix(name, "@"), "/")
+	return "https://jsr.io/api/scopes/" + url.PathEscape(scope) + "/packages/" + url.PathEscape(packageName)
+}
+
+const conanRecipes = "https://raw.githubusercontent.com/conan-io/conan-center-index/master/recipes/"
 
 // depsDevSystems are ecosystems resolved through deps.dev, whose registries do not expose source links simply.
 var depsDevSystems = map[string]string{manifest.Maven: "maven", manifest.NuGet: "nuget"}
@@ -109,6 +126,12 @@ func (resolver Resolver) repoFor(ctx context.Context, dependency manifest.Depend
 	switch {
 	case dependency.Ecosystem == manifest.Swift:
 		return ghrepo.FromURL(dependency.Name), nil
+	case dependency.Ecosystem == manifest.GitHub:
+		return dependency.Name, nil
+	case dependency.Ecosystem == manifest.Docker:
+		return DockerImageRepo(dependency.Name), nil
+	case dependency.Ecosystem == manifest.Conan:
+		return resolver.viaConanCenter(ctx, dependency.Name)
 	case dependency.Ecosystem == manifest.Go && GoModuleRepo(dependency.Name) != "":
 		return GoModuleRepo(dependency.Name), nil
 	case depsDevSystems[dependency.Ecosystem] != "":
@@ -119,10 +142,33 @@ func (resolver Resolver) repoFor(ctx context.Context, dependency manifest.Depend
 		return "", nil
 	}
 	body, err := resolver.get(ctx, source.url(dependency.Name))
+	if err != nil && !errors.Is(err, errNotFound) {
+		return "", err
+	}
+	repo := ghrepo.First(source.candidates(body)...)
+	if repo == "" && dependency.Ecosystem == manifest.Clojars {
+		// org.clojure and other libraries are published to Maven Central, not Clojars
+		return resolver.viaDepsDev(ctx, "maven", strings.Replace(dependency.Name, "/", ":", 1))
+	}
+	return repo, nil
+}
+
+// viaConanCenter reads a conan-center-index recipe: config.yml names the folder
+// of the newest version, whose conanfile.py gives the project's homepage.
+func (resolver Resolver) viaConanCenter(ctx context.Context, name string) (string, error) {
+	config, err := resolver.get(ctx, conanRecipes+url.PathEscape(name)+"/config.yml")
 	if err != nil {
 		return "", notFoundIsEmpty(err)
 	}
-	return ghrepo.First(source.candidates(body)...), nil
+	folder := conanRecipeFolder(config)
+	if folder == "" {
+		return "", nil
+	}
+	recipe, err := resolver.get(ctx, conanRecipes+url.PathEscape(name)+"/"+url.PathEscape(folder)+"/conanfile.py")
+	if err != nil {
+		return "", notFoundIsEmpty(err)
+	}
+	return ghrepo.First(conanCandidates(recipe)...), nil
 }
 
 func (resolver Resolver) viaDepsDev(ctx context.Context, system, name string) (string, error) {

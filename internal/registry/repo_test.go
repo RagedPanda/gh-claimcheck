@@ -23,11 +23,42 @@ func TestRegistryCandidates(t *testing.T) {
 		{"cocoapods", cocoapodsCandidates([]byte(`{"source": {"git": "https://github.com/Alamofire/Alamofire.git", "tag": "5.9.1"}}`)), "Alamofire/Alamofire"},
 		{"deps.dev", depsDevCandidates([]byte(`{"links": [{"label": "HOMEPAGE", "url": "https://square.github.io/okhttp/"}, {"label": "SOURCE_REPO", "url": "https://github.com/square/okhttp"}], "relatedProjects": [{"projectKey": {"id": "github.com/square/okhttp"}, "relationType": "SOURCE_REPO"}]}`)), "square/okhttp"},
 		{"go-import", goImportCandidates([]byte(`<meta name="go-import" content="go.uber.org/zap git https://github.com/uber-go/zap">`)), "uber-go/zap"},
+		{"jsr", jsrCandidates([]byte(`{"scope": "std", "name": "path", "githubRepository": {"id": 1, "owner": "denoland", "name": "std"}}`)), "denoland/std"},
+		{"jsr without repo", jsrCandidates([]byte(`{"scope": "me", "name": "x", "githubRepository": null}`)), ""},
+		{"conda", condaCandidates([]byte(`{"name": "numpy", "dev_url": "https://github.com/numpy/numpy", "home": "https://numpy.org"}`)), "numpy/numpy"},
+		{"hex", hexCandidates([]byte(`{"name": "jason", "meta": {"links": {"Docs": "https://hexdocs.pm/jason", "GitHub": "https://github.com/michalmuskala/jason"}}}`)), "michalmuskala/jason"},
+		{"vcpkg", homepageCandidates([]byte(`{"name": "fmt", "version": "11.0.2", "homepage": "https://github.com/fmtlib/fmt"}`)), "fmtlib/fmt"},
+		{"clojars", clojarsCandidates([]byte(`{"group_name": "cheshire", "homepage": "https://github.com/dakrone/cheshire", "scm": {"url": "https://github.com/dakrone/cheshire", "tag": "abc"}}`)), "dakrone/cheshire"},
+		{"conan", conanCandidates([]byte("class ZlibConan(ConanFile):\n    url = \"https://github.com/conan-io/conan-center-index\"\n    homepage = \"https://github.com/madler/zlib\"\n")), "madler/zlib"},
+		{"conan without github homepage", conanCandidates([]byte("    url = \"https://github.com/conan-io/conan-center-index\"\n    homepage = \"https://www.openssl.org\"\n")), ""},
 		{"bad json", npmCandidates([]byte(`not json`)), ""},
 	}
 	for _, tc := range cases {
 		if got := ghrepo.First(tc.candidates...); got != tc.want {
 			t.Errorf("%s: got %q, want %q (candidates %q)", tc.name, got, tc.want, tc.candidates)
+		}
+	}
+}
+
+func TestConanRecipeFolder(t *testing.T) {
+	config := []byte("versions:\n  \"1.3.1\":\n    folder: all\n  \"1.2.13\":\n    folder: \"old\"\n")
+	if got := conanRecipeFolder(config); got != "all" {
+		t.Errorf("folder = %q, want all", got)
+	}
+}
+
+func TestDockerImageRepo(t *testing.T) {
+	cases := map[string]string{
+		"redis":                     "redis/redis",
+		"node":                      "nodejs/node",
+		"ghcr.io/acme/api":          "acme/api",
+		"ghcr.io/acme/tools/runner": "acme/tools",
+		"postgres":                  "",
+		"ubuntu":                    "",
+	}
+	for image, want := range cases {
+		if got := DockerImageRepo(image); got != want {
+			t.Errorf("DockerImageRepo(%q) = %q, want %q", image, got, want)
 		}
 	}
 }
