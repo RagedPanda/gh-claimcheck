@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/repository"
@@ -18,6 +17,7 @@ import (
 	"github.com/RagedPanda/gh-claimcheck/internal/check"
 	"github.com/RagedPanda/gh-claimcheck/internal/facts"
 	"github.com/RagedPanda/gh-claimcheck/internal/github"
+	"github.com/RagedPanda/gh-claimcheck/internal/parallel"
 	"github.com/RagedPanda/gh-claimcheck/internal/ref"
 	"github.com/RagedPanda/gh-claimcheck/internal/render"
 	"github.com/RagedPanda/gh-claimcheck/internal/search"
@@ -135,7 +135,7 @@ func parseIssues(inputs []string, defaultRepo string) ([]ref.Issue, error) {
 // checkAll checks issues in parallel and returns results in input order.
 func checkAll(ctx context.Context, client *github.Client, issues []ref.Issue, now time.Time) []render.Result {
 	results := make([]render.Result, len(issues))
-	forEachLimited(len(issues), func(index int) {
+	parallel.ForEach(len(issues), concurrency, func(index int) {
 		results[index] = checkOne(ctx, client, issues[index], now)
 	})
 	return results
@@ -151,7 +151,7 @@ func checkOne(ctx context.Context, client *github.Client, issue ref.Issue, now t
 
 func withChecks(ctx context.Context, client *github.Client, candidates []render.Candidate, now time.Time) []render.Candidate {
 	checked := make([]render.Candidate, len(candidates))
-	forEachLimited(len(candidates), func(index int) {
+	parallel.ForEach(len(candidates), concurrency, func(index int) {
 		candidate := candidates[index]
 		issue := ref.Issue{Number: candidate.Issue.Number}
 		issue.Owner, issue.Name, _ = ref.ParseRepo(candidate.Issue.Repo)
@@ -174,21 +174,6 @@ func onlyGo(candidates []render.Candidate) []render.Candidate {
 		}
 	}
 	return kept
-}
-
-// forEachLimited runs work for each index with at most `concurrency` running at once.
-func forEachLimited(count int, work func(index int)) {
-	slots := make(chan struct{}, concurrency)
-	var group sync.WaitGroup
-	for index := 0; index < count; index++ {
-		group.Add(1)
-		slots <- struct{}{}
-		go func(index int) {
-			defer func() { <-slots; group.Done() }()
-			work(index)
-		}(index)
-	}
-	group.Wait()
 }
 
 func exitStatus(config checkConfig, results []render.Result) int {
