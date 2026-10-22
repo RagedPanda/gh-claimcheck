@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RagedPanda/gh-claimcheck/internal/ghrepo"
 	"github.com/RagedPanda/gh-claimcheck/internal/manifest"
 	"github.com/RagedPanda/gh-claimcheck/internal/parallel"
 )
@@ -107,7 +108,7 @@ func (resolver Resolver) Resolve(ctx context.Context, dependencies []manifest.De
 func (resolver Resolver) repoFor(ctx context.Context, dependency manifest.Dependency) (string, error) {
 	switch {
 	case dependency.Ecosystem == manifest.Swift:
-		return GitHubRepo(dependency.Name), nil
+		return ghrepo.FromURL(dependency.Name), nil
 	case dependency.Ecosystem == manifest.Go && GoModuleRepo(dependency.Name) != "":
 		return GoModuleRepo(dependency.Name), nil
 	case depsDevSystems[dependency.Ecosystem] != "":
@@ -121,7 +122,7 @@ func (resolver Resolver) repoFor(ctx context.Context, dependency manifest.Depend
 	if err != nil {
 		return "", notFoundIsEmpty(err)
 	}
-	return FirstGitHubRepo(source.candidates(body)...), nil
+	return ghrepo.First(source.candidates(body)...), nil
 }
 
 func (resolver Resolver) viaDepsDev(ctx context.Context, system, name string) (string, error) {
@@ -138,7 +139,7 @@ func (resolver Resolver) viaDepsDev(ctx context.Context, system, name string) (s
 	if err != nil {
 		return "", notFoundIsEmpty(err)
 	}
-	return FirstGitHubRepo(depsDevCandidates(body)...), nil
+	return ghrepo.First(depsDevCandidates(body)...), nil
 }
 
 // notFoundIsEmpty treats a missing package (private, or a typo) as an answer, not a failure.

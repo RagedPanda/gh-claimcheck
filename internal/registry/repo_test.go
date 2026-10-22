@@ -1,29 +1,10 @@
 package registry
 
-import "testing"
+import (
+	"testing"
 
-func TestGitHubRepo(t *testing.T) {
-	cases := map[string]string{
-		"git+https://github.com/lodash/lodash.git":               "lodash/lodash",
-		"https://github.com/babel/babel.git":                     "babel/babel",
-		"git@github.com:serde-rs/serde.git":                      "serde-rs/serde",
-		"ssh://git@github.com/acme/lib":                          "acme/lib",
-		"github:sindresorhus/ora":                                "sindresorhus/ora",
-		"https://github.com/rails/rails/tree/v8.1.4":             "rails/rails",
-		"https://www.github.com/psf/requests#readme":             "psf/requests",
-		"github.com/square/okhttp":                               "square/okhttp",
-		"https://github.com/sponsors/someone":                    "",
-		"https://gitlab.com/acme/lib":                            "",
-		"https://notgithub.com/acme/lib":                         "",
-		"":                                                       "",
-		"https://github.com/date-fns/date-fns/tree/main/pkgs/tz": "date-fns/date-fns",
-	}
-	for input, want := range cases {
-		if got := GitHubRepo(input); got != want {
-			t.Errorf("GitHubRepo(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
+	"github.com/RagedPanda/gh-claimcheck/internal/ghrepo"
+)
 
 func TestRegistryCandidates(t *testing.T) {
 	cases := []struct {
@@ -45,7 +26,7 @@ func TestRegistryCandidates(t *testing.T) {
 		{"bad json", npmCandidates([]byte(`not json`)), ""},
 	}
 	for _, tc := range cases {
-		if got := FirstGitHubRepo(tc.candidates...); got != tc.want {
+		if got := ghrepo.First(tc.candidates...); got != tc.want {
 			t.Errorf("%s: got %q, want %q (candidates %q)", tc.name, got, tc.want, tc.candidates)
 		}
 	}

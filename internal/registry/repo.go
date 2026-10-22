@@ -9,39 +9,6 @@ import (
 	"strings"
 )
 
-var gitHubRepo = regexp.MustCompile(`(?i)(?:^|[/@:.])github\.com[/:]([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)`)
-
-// notRepos are GitHub paths that look like owner/repo but are not repositories.
-var notRepos = map[string]bool{"sponsors": true, "orgs": true, "users": true, "features": true, "marketplace": true, "apps": true}
-
-// GitHubRepo extracts "owner/repo" from any form of GitHub URL: https, git+https, ssh,
-// git@, tree/blob links and "github:owner/repo". It returns "" for anything else.
-func GitHubRepo(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if rest, ok := strings.CutPrefix(raw, "github:"); ok {
-		raw = "github.com/" + rest
-	}
-	match := gitHubRepo.FindStringSubmatch(raw)
-	if match == nil || notRepos[strings.ToLower(match[1])] {
-		return ""
-	}
-	name := strings.TrimSuffix(match[2], ".git")
-	if name == "" || name == "." || name == ".." {
-		return ""
-	}
-	return match[1] + "/" + name
-}
-
-// FirstGitHubRepo returns the first candidate that is a GitHub repository.
-func FirstGitHubRepo(candidates ...string) string {
-	for _, candidate := range candidates {
-		if repo := GitHubRepo(candidate); repo != "" {
-			return repo
-		}
-	}
-	return ""
-}
-
 // npmCandidates reads a registry.npmjs.org/<name>/latest document.
 // "repository" may be a string ("owner/repo", "github:owner/repo", a URL) or an object with "url".
 func npmCandidates(body []byte) []string {
