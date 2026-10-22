@@ -32,7 +32,7 @@ func packageJSON(content []byte) []Dependency {
 
 // isRegistryVersion drops local and workspace references, which are not published packages.
 func isRegistryVersion(version string) bool {
-	for _, prefix := range []string{"workspace:", "file:", "link:", "portal:"} {
+	for _, prefix := range []string{"workspace:", "file:", "link:", "portal:", "github:", "git:", "git+", "http:", "https:"} {
 		if strings.HasPrefix(version, prefix) {
 			return false
 		}

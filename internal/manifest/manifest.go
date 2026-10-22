@@ -23,6 +23,8 @@ const (
 	Swift     = "swift" // name is the package's git URL
 	CocoaPods = "cocoapods"
 	NuGet     = "nuget"
+	JSR       = "jsr"
+	Conda     = "conda"
 )
 
 // Dependency is one package a project uses.
@@ -38,23 +40,27 @@ func (dependency Dependency) Key() string { return dependency.Ecosystem + ":" + 
 
 type parser func(content []byte) []Dependency
 
-// format pairs a file-name test with the parser for that kind of file.
+// format pairs a file test with the parser for that kind of file. The test
+// gets the slash-separated path; most formats only look at the base name.
 type format struct {
-	matches func(base string) bool
+	matches func(name string) bool
 	parse   parser
 }
 
+func byBase(test func(base string) bool, parse parser) format {
+	return format{func(name string) bool { return test(path.Base(name)) }, parse}
+}
+
 func named(name string, parse parser) format {
-	return format{func(base string) bool { return base == name }, parse}
+	return byBase(func(base string) bool { return base == name }, parse)
 }
 
 func suffixed(suffix string, parse parser) format {
-	return format{func(base string) bool { return strings.HasSuffix(base, suffix) }, parse}
+	return byBase(func(base string) bool { return strings.HasSuffix(base, suffix) }, parse)
 }
 
 func matching(pattern string, parse parser) format {
-	expression := regexp.MustCompile(pattern)
-	return format{expression.MatchString, parse}
+	return byBase(regexp.MustCompile(pattern).MatchString, parse)
 }
 
 // formats lists every supported manifest and lock file. To support a new kind
@@ -66,6 +72,10 @@ var formats = []format{
 	named("npm-shrinkwrap.json", packageLock),
 	named("yarn.lock", yarnLock),
 	named("pnpm-lock.yaml", pnpmLock),
+	named("bun.lock", bunLock),
+	named("deno.json", denoJSON),
+	named("deno.jsonc", denoJSON),
+	named("deno.lock", denoLock),
 	// Go
 	named("go.mod", goMod),
 	// Python
@@ -75,6 +85,9 @@ var formats = []format{
 	named("Pipfile", pipfile),
 	named("poetry.lock", tomlPackages(PyPI, false)),
 	named("uv.lock", tomlPackages(PyPI, false)),
+	named("setup.py", setupPy),
+	named("setup.cfg", setupCfg),
+	matching(`^environment[\w.-]*\.ya?ml$`, condaEnvironment),
 	// Rust
 	named("Cargo.toml", cargoToml),
 	named("Cargo.lock", tomlPackages(Cargo, true)),
@@ -113,9 +126,8 @@ func Supported(name string) bool {
 }
 
 func parserFor(name string) (parser, bool) {
-	base := path.Base(name)
 	for _, candidate := range formats {
-		if candidate.matches(base) {
+		if candidate.matches(name) {
 			return candidate.parse, true
 		}
 	}
