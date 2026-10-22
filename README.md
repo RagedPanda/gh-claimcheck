@@ -34,13 +34,47 @@ None of those PRs mention the issue, and they live in a different repository, so
 
 ## Install
 
-You need the [GitHub CLI](https://cli.github.com) and a login (`gh auth login`). Then:
+**1. Install the GitHub CLI** (skip if `gh --version` already works):
+
+| System | Command |
+|---|---|
+| macOS | `brew install gh` |
+| Windows | `winget install --id GitHub.cli` |
+| Debian, Ubuntu | `sudo apt install gh` (or see the [official instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md) for the latest version) |
+| Fedora | `sudo dnf install gh` |
+| Other | see [cli.github.com](https://cli.github.com) |
+
+**2. Log in to GitHub.** claimcheck uses this login to read issues and pull requests; it never writes anything.
+
+```sh
+gh auth login
+```
+
+Choose **GitHub.com**, then **HTTPS**, then **Login with a web browser**, and paste the one-time code it shows. Check it worked with `gh auth status`.
+
+**3. Install claimcheck:**
 
 ```sh
 gh extension install RagedPanda/gh-claimcheck
 ```
 
+**4. Try it:**
+
+```sh
+gh claimcheck --help
+gh claimcheck find --good-first-issue --limit 5
+```
+
 Upgrade later with `gh extension upgrade claimcheck`. Prebuilt binaries are provided for macOS, Linux and Windows; you don't need Go.
+
+**Something went wrong?**
+
+| Message | Fix |
+|---|---|
+| `command not found: gh` or `gh: command not found` | Step 1: install the GitHub CLI, then open a new terminal. |
+| `claimcheck: not logged in to GitHub; run gh auth login` | Step 2: run `gh auth login`. If you are logged in, your login may have expired: run `gh auth refresh`. |
+| `unknown command "claimcheck" for "gh"` | Step 3: install the extension. |
+| `rate limit` in the error | Wait a few minutes. GitHub limits how many searches an account can run per minute. |
 
 ## Quick start (new to open source? start here)
 
