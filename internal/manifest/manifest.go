@@ -29,7 +29,8 @@ const (
 	Conan     = "conan"
 	Clojars   = "clojars" // name is group/artifact
 	Hex       = "hex"
-	GitHub    = "github" // name is owner/repo: Carthage and git dependencies
+	GitHub    = "github" // name is owner/repo: GitHub Actions, Carthage and git dependencies
+	Docker    = "docker" // name is the image without its tag
 )
 
 // Dependency is one package a project uses.
@@ -66,6 +67,11 @@ func suffixed(suffix string, parse parser) format {
 
 func matching(pattern string, parse parser) format {
 	return byBase(regexp.MustCompile(pattern).MatchString, parse)
+}
+
+// inPath matches the whole path, for files recognised by their folder.
+func inPath(pattern string, parse parser) format {
+	return format{regexp.MustCompile(pattern).MatchString, parse}
 }
 
 // formats lists every supported manifest and lock file. To support a new kind
@@ -139,6 +145,12 @@ var formats = []format{
 	suffixed(".vbproj", msbuild),
 	named("Directory.Packages.props", msbuild),
 	named("packages.lock.json", nugetLock),
+	// GitHub Actions
+	inPath(`(^|/)\.github/workflows/[^/]+\.ya?ml$`, workflow),
+	matching(`^action\.ya?ml$`, workflow),
+	// Docker images, including the databases and services a project runs
+	matching(`^(Dockerfile|Containerfile)([.-][\w.-]+)?$|\.(Dockerfile|dockerfile)$`, dockerfile),
+	matching(`^(docker-)?compose([.-][\w.-]+)?\.ya?ml$`, compose),
 }
 
 // Supported reports whether a file name is a manifest or lock file this package reads.
