@@ -25,6 +25,11 @@ const (
 	NuGet     = "nuget"
 	JSR       = "jsr"
 	Conda     = "conda"
+	Vcpkg     = "vcpkg"
+	Conan     = "conan"
+	Clojars   = "clojars" // name is group/artifact
+	Hex       = "hex"
+	GitHub    = "github" // name is owner/repo: Carthage and git dependencies
 )
 
 // Dependency is one package a project uses.
@@ -96,6 +101,20 @@ var formats = []format{
 	suffixed(".gradle.kts", gradle),
 	suffixed(".versions.toml", versionCatalog),
 	named("pom.xml", pomXML),
+	// Scala and Clojure
+	suffixed(".sbt", sbt),
+	named("deps.edn", depsEDN),
+	named("project.clj", projectCLJ),
+	// C and C++
+	named("vcpkg.json", vcpkgJSON),
+	named("conanfile.txt", conanfileTxt),
+	named("conanfile.py", conanfilePy),
+	named("conan.lock", conanLock),
+	// Elixir and Erlang
+	named("mix.exs", mixExs),
+	named("mix.lock", mixLock),
+	named("rebar.config", rebarConfig),
+	named("rebar.lock", rebarLock),
 	// Ruby
 	named("Gemfile", gemfile),
 	named("gems.rb", gemfile),
@@ -111,6 +130,9 @@ var formats = []format{
 	named("Package.swift", packageSwift),
 	named("Package.resolved", packageResolved),
 	named("Podfile.lock", podfileLock),
+	named("Cartfile", cartfile(true, false)),
+	named("Cartfile.private", cartfile(true, true)),
+	named("Cartfile.resolved", cartfile(false, false)),
 	// .NET
 	suffixed(".csproj", msbuild),
 	suffixed(".fsproj", msbuild),
