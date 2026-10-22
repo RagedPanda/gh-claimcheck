@@ -81,11 +81,11 @@ directory), looks each package up in its registry to find its GitHub
 repository, and searches those repositories for open, unassigned issues with
 no linked PR. Issues in your direct dependencies come first.
 
-Reads: package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, go.mod,
-requirements*.txt, pyproject.toml, Pipfile, poetry.lock, uv.lock, Cargo.toml,
-Cargo.lock, build.gradle(.kts), libs.versions.toml, pom.xml, Gemfile(.lock),
-composer.json/.lock, pubspec.yaml/.lock, Package.swift, Package.resolved,
-Podfile.lock, *.csproj, Directory.Packages.props, packages.lock.json.
+Reads the manifest and lock files of npm, Bun, Deno (JSR), Python (pip,
+Poetry, uv, Pipenv, setup.py, Conda), Go, Rust, Gradle, Maven, sbt, Clojure,
+vcpkg, Conan, Ruby, PHP, Dart, Swift (SwiftPM, CocoaPods, Carthage), Elixir,
+Erlang and .NET, plus GitHub Actions workflows and the Docker images in
+Dockerfiles and compose files. See the README for the full list.
 
 FLAGS
       --direct-only         Only libraries your manifests list, not their dependencies

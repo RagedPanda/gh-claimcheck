@@ -188,16 +188,26 @@ Issues in your direct dependencies come first, then the newest. It looks in ever
 
 | Ecosystem | Files it reads | Repository looked up on |
 |---|---|---|
-| JavaScript, TypeScript | `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml` | npm |
-| Python | `requirements*.txt`, `requirements*.in`, `pyproject.toml` (PEP 621, Poetry, dependency groups), `Pipfile`, `poetry.lock`, `uv.lock` | PyPI |
+| JavaScript, TypeScript | `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock` | npm |
+| Deno | `deno.json`, `deno.jsonc`, `deno.lock` (`jsr:` and `npm:` imports) | JSR, npm |
+| Python | `requirements*.txt`, `requirements*.in`, `pyproject.toml` (PEP 621, Poetry, dependency groups), `Pipfile`, `poetry.lock`, `uv.lock`, `setup.py`, `setup.cfg` | PyPI |
+| Conda | `environment.yml` (its `pip:` section goes to PyPI) | conda-forge |
 | Go | `go.mod` | the module path, or its `go-import` tag |
 | Rust | `Cargo.toml`, `Cargo.lock` | crates.io |
 | Android, Kotlin, Java | `build.gradle`, `build.gradle.kts`, `libs.versions.toml`, `pom.xml` | Maven Central, via deps.dev |
+| Scala | `*.sbt` | Maven Central, via deps.dev |
+| Clojure | `deps.edn`, `project.clj` | Clojars, then Maven Central |
+| C, C++ | `vcpkg.json`, `conanfile.txt`, `conanfile.py`, `conan.lock` | vcpkg ports, ConanCenter recipes |
 | Ruby | `Gemfile`, `Gemfile.lock`, `gems.rb`, `gems.locked` | RubyGems |
 | PHP | `composer.json`, `composer.lock` | Packagist |
 | Dart, Flutter | `pubspec.yaml`, `pubspec.lock` | pub.dev |
-| Swift, iOS | `Package.swift`, `Package.resolved`, `Podfile.lock` | the package URL, CocoaPods |
+| Swift, iOS | `Package.swift`, `Package.resolved`, `Podfile.lock`, `Cartfile`, `Cartfile.private`, `Cartfile.resolved` | the package URL, CocoaPods |
+| Elixir, Erlang | `mix.exs`, `mix.lock`, `rebar.config`, `rebar.lock` | Hex |
 | .NET | `*.csproj`, `*.fsproj`, `*.vbproj`, `Directory.Packages.props`, `packages.lock.json` | NuGet, via deps.dev |
+| GitHub Actions | `.github/workflows/*.yml`, `action.yml` | the action's repository (counted as dev) |
+| Docker | `Dockerfile`, `Containerfile`, `compose.yaml`, `docker-compose.yml` | a built-in list of images, and `ghcr.io/owner/...` |
+
+Git dependencies on GitHub (in `mix.exs`, `rebar.config`, `deps.edn` and Carthage files) are searched directly. The Docker list covers the databases, caches, queues and runtimes projects usually run, such as `redis`, `rabbitmq`, `elasticsearch`, `clickhouse`, `nginx`, `node` and `golang`. Some well-known projects (PostgreSQL, MySQL, MongoDB, MariaDB) take bug reports outside GitHub, so they are not searched.
 
 It takes the same issue flags as `find` (`--label`, `--good-first-issue`, `--help-wanted`, `--days`, `--max-comments`, `--min-stars`, `--limit`, `--check`, `--go-only`, `--json`), plus:
 
