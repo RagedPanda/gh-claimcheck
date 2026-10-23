@@ -107,7 +107,7 @@ func runFind(args []string, stdout io.Writer, palette render.Palette) error {
 		return err
 	}
 	ctx, now := context.Background(), time.Now()
-	found, err := client.FindIssues(ctx, search.Query(config.options, now), config.limit, search.HasStars(config.minStars))
+	found, err := client.FindIssues(ctx, search.Query(config.options, now), config.limit, search.Worthwhile(config.minStars))
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func runDeps(args []string, stdout, stderr io.Writer, palette render.Palette) er
 	parallel.ForEach(len(chunks), concurrency, func(index int) {
 		options := config.find.options
 		options.Repos = chunks[index]
-		results[index], errs[index] = client.FindIssues(ctx, search.Query(options, now), config.find.limit, search.HasStars(config.find.minStars))
+		results[index], errs[index] = client.FindIssues(ctx, search.Query(options, now), config.find.limit, search.Worthwhile(config.find.minStars))
 	})
 	if err := errors.Join(errs...); err != nil {
 		return err
