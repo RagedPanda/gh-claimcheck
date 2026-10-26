@@ -40,6 +40,39 @@ func TestIsClaim(t *testing.T) {
 	}
 }
 
+func TestBodyClaim(t *testing.T) {
+	claims := map[string]string{
+		// typeorm/typeorm#13012: issue form dropdown answer
+		"### Are you willing to resolve this issue by submitting a Pull Request?\n\nYes, I have the time, and I know how to start.": "Yes, I have the time, and I know how to start.",
+		// open-telemetry/opentelemetry-js#7235: offer at the end of the body
+		"## Proposed fix\n\nReturn early.\n\nHappy to open a PR with a test for the plain-TLS case if this approach works for the maintainers.": "Happy to open a PR with a test for the plain-TLS case if this approach works for the maintainers.",
+		"### Willing to submit a PR?\n\n- [x] Yes, I am willing to submit a PR!":                                                                "- [x] Yes, I am willing to submit a PR!",
+		"Would you like to implement a fix?\n\n- ✔️ Yes, I'd like to help":                                                                      "- ✔️ Yes, I'd like to help",
+		"I can open a PR for this.":                  "I can open a PR for this.",
+		"I'd be happy to submit a fix if you agree.": "I'd be happy to submit a fix if you agree.",
+	}
+	for body, want := range claims {
+		if got := BodyClaim(body); got != want {
+			t.Errorf("BodyClaim(%q) = %q, want %q", body, got, want)
+		}
+	}
+
+	notClaims := []string{
+		"### Are you willing to resolve this issue by submitting a Pull Request?\n\nNo, I don't have the time and I'm okay to wait for the community / maintainers to resolve this issue.",
+		"### Willing to submit a PR?\n\n- [ ] Yes, I am willing to submit a PR!",
+		"### Are you willing to submit a PR?\n\n### Other\n\nYes this is a big problem",
+		"I'm not able to submit a PR, sorry.",
+		"I can fix it locally by setting `strict: false`.",
+		"> Happy to open a PR\n\nme too",
+		"The fix could make a PR template unnecessary.",
+	}
+	for _, body := range notClaims {
+		if got := BodyClaim(body); got != "" {
+			t.Errorf("BodyClaim(%q) = %q, want \"\"", body, got)
+		}
+	}
+}
+
 func TestIsDecline(t *testing.T) {
 	for _, body := range []string{"This is working as intended.", "Duplicate of #42", "We won't accept a PR for this", "wontfix"} {
 		if !IsDecline(body) {

@@ -24,6 +24,62 @@ func IsClaim(body string) bool {
 	return matchesAny(claimPatterns, normalize(body))
 }
 
+var (
+	// A template question such as "Are you willing to resolve this issue by submitting a Pull Request?".
+	willingQuestion = regexp.MustCompile(`\b(willing|like|want|able|interested|plan) to\b.*\b(pr|prs|pull request|contribute|contribution|resolve|fix|implement)\b`)
+	// An offer written into the issue, such as "Happy to open a PR with a test".
+	offerPattern = regexp.MustCompile(`\b(happy|glad|willing|keen|eager|able|i can|i could|i'?ll|i will|i'?d|i would)\s+(to\s+|be happy to\s+|like to\s+|love to\s+)?(open|submit|send|raise|create|put up|contribute|make)\s+(a|the|my)\s+(fix|pr|pull request|patch)\b`)
+	negation     = regexp.MustCompile(`\b(not|never|no|unable)\b|n't\b`)
+	affirmative  = regexp.MustCompile(`^(yes|yep|yeah|sure|absolutely|definitely)\b`)
+	answerPrefix = regexp.MustCompile(`^[^a-z\[]*(\[[xX]\]\s*)?[^a-z]*`)
+)
+
+// BodyClaim returns the line of an issue body in which its author offers to fix
+// the issue themselves, or "" when there is none. It recognises a "yes" answer to
+// a template question about submitting a PR, and offers like "happy to open a PR".
+// Narrower than IsClaim, because a body often explains how the bug could be fixed.
+func BodyClaim(body string) string {
+	lines := unquoted(body)
+	for index, line := range lines {
+		lowered := normalize(line)
+		switch {
+		case strings.Contains(lowered, "[ ]"):
+			// An unticked template option is a choice the author did not pick.
+		case strings.Contains(lowered, "?"):
+			// A question is not an offer, but a template question may be followed by a "yes".
+			if willingQuestion.MatchString(lowered) {
+				if answer := templateAnswer(lines[index+1:]); answer != "" {
+					return answer
+				}
+			}
+		case offerPattern.MatchString(lowered) && !negation.MatchString(lowered):
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// templateAnswer returns the "yes" answer that follows a template question, or ""
+// when the answer is no, an unticked box, or missing before the next heading.
+func templateAnswer(lines []string) string {
+	for _, line := range lines {
+		lowered := strings.TrimSpace(normalize(line))
+		switch {
+		case lowered == "":
+			continue
+		case strings.HasPrefix(lowered, "#"):
+			return ""
+		case strings.Contains(lowered, "[ ]"):
+			continue
+		case affirmative.MatchString(answerPrefix.ReplaceAllString(lowered, "")):
+			return strings.TrimSpace(line)
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 var declinePatterns = compileAll(
 	`\bwon'?t fix\b`, `\bwontfix\b`, `\bnot a bug\b`, `\bworking as (intended|designed|expected)\b`,
 	`\b(this is )?(by|as) design\b`, `\bduplicate of\b`, `\bnot planned\b`,
@@ -203,13 +259,18 @@ func excerpt(paragraph string) string {
 // normalize lowercases text, unifies apostrophes and drops quoted reply lines,
 // so a quoted claim by someone else is not read as a new claim.
 func normalize(body string) string {
+	return strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(strings.Join(unquoted(body), "\n")))
+}
+
+// unquoted returns the lines of a body that are not quoted replies.
+func unquoted(body string) []string {
 	var kept []string
 	for _, line := range strings.Split(body, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), ">") {
 			kept = append(kept, line)
 		}
 	}
-	return strings.NewReplacer("’", "'", "‘", "'").Replace(strings.ToLower(strings.Join(kept, "\n")))
+	return kept
 }
 
 func compileAll(patterns ...string) []*regexp.Regexp {

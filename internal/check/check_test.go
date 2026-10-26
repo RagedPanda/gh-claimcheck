@@ -92,6 +92,10 @@ func TestCautions(t *testing.T) {
 		{"title-matched open PR", func(f *facts.Facts) {
 			f.PullRequests = []facts.PullRequest{{Repo: "acme/lib", Number: 11, State: "OPEN", Author: "dan", Title: "parse: keep last line", Source: facts.SourceTitleMatch}}
 		}, "An open PR looks like the same fix"},
+		{"reporter offered in the issue", func(f *facts.Facts) {
+			f.Issue.Author = "erin"
+			f.Issue.Body = "### Are you willing to resolve this issue by submitting a Pull Request?\n\nYes, I have the time, and I know how to start."
+		}, "The reporter offered to fix it"},
 		{"maintainer pushback", func(f *facts.Facts) {
 			f.Issue.Comments = []facts.Comment{{Author: "owner", Association: "OWNER", Body: "This is working as intended.", CreatedAt: daysAgo(1)}}
 		}, "A maintainer pushed back"},
@@ -140,6 +144,43 @@ func TestViewerOwnWorkDoesNotBlock(t *testing.T) {
 	if !report.Yours || report.Summary != "You are already on it" {
 		t.Errorf("Yours = %v, summary = %q; want true, %q", report.Yours, report.Summary, "You are already on it")
 	}
+}
+
+func TestReporterOffer(t *testing.T) {
+	offer := "Happy to open a PR with a test if this approach works for the maintainers."
+
+	t.Run("own offer", func(t *testing.T) {
+		issueFacts := healthy()
+		issueFacts.Issue.Author, issueFacts.Issue.Body = "Me", offer
+		report := Run(issueFacts)
+		if report.Verdict != Go || !report.Yours {
+			t.Fatalf("verdict = %s, Yours = %v; want GO, true", report.Verdict, report.Yours)
+		}
+		assertHasTitle(t, report, "You offered to fix it in the issue")
+	})
+
+	t.Run("reporter also claimed in a comment", func(t *testing.T) {
+		issueFacts := healthy()
+		issueFacts.Issue.Author, issueFacts.Issue.Body = "erin", offer
+		issueFacts.Issue.Comments = []facts.Comment{{Author: "erin", Body: "I'll take this", CreatedAt: daysAgo(1)}}
+		report := Run(issueFacts)
+		if report.Summary != "Claimed by @erin" {
+			t.Errorf("summary = %q, want %q", report.Summary, "Claimed by @erin")
+		}
+		for _, finding := range report.Findings {
+			if finding.Title == "The reporter offered to fix it" {
+				t.Errorf("offer reported alongside the comment claim: %+v", report.Findings)
+			}
+		}
+	})
+
+	t.Run("no offer", func(t *testing.T) {
+		issueFacts := healthy()
+		issueFacts.Issue.Author, issueFacts.Issue.Body = "erin", "### Are you willing to submit a PR?\n\nNo"
+		if report := Run(issueFacts); report.Verdict != Go {
+			t.Errorf("verdict = %s, want GO; findings: %+v", report.Verdict, report.Findings)
+		}
+	})
 }
 
 func TestLooseTitleMatchesAreGroupedAsContext(t *testing.T) {

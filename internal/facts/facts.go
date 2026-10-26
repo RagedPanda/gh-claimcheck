@@ -18,6 +18,7 @@ type Issue struct {
 	Repo          string
 	Number        int
 	Title         string
+	Body          string
 	URL           string
 	State         string // OPEN or CLOSED
 	StateReason   string // COMPLETED, NOT_PLANNED, REOPENED or empty

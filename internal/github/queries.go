@@ -42,7 +42,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       nodes { mergedAt authorAssociation author { login __typename } }
     }
     issue(number: $number) {
-      title url state stateReason createdAt locked
+      title body url state stateReason createdAt locked
       author { login }
       assignees(first: 10) { nodes { login } }
       labels(first: 30) { nodes { name } }
@@ -140,6 +140,7 @@ func (node prNode) toPullRequest(source string) facts.PullRequest {
 
 type issueNode struct {
 	Title       string
+	Body        string
 	URL         string
 	State       string
 	StateReason string
@@ -168,7 +169,7 @@ type issueNode struct {
 
 func (node issueNode) toIssue(repo string) facts.Issue {
 	issue := facts.Issue{
-		Repo: repo, Title: node.Title, URL: node.URL, State: node.State, StateReason: node.StateReason,
+		Repo: repo, Title: node.Title, Body: node.Body, URL: node.URL, State: node.State, StateReason: node.StateReason,
 		Author: loginOf(node.Author), CreatedAt: node.CreatedAt, Locked: node.Locked, TotalComments: node.Comments.TotalCount,
 	}
 	issue.Number = numberFromURL(node.URL)

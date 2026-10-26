@@ -108,6 +108,7 @@ Upgrade later with `gh extension upgrade claimcheck`. Prebuilt binaries are prov
 | **PRs with a similar title**, ranked by how closely they match | Many PRs never mention the issue number. |
 | **Project moved** (README notice like "moved to the monorepo") | The fix and the other PRs are often in the new repository; it is searched too. |
 | **Claims in comments** ("I'd like to work on this", `/assign`, "I've opened a PR") | Someone may be on it without being assigned. Recent claims block; old ones only warn. |
+| **Offers in the issue itself** ("Yes" to "Are you willing to submit a PR?", "Happy to open a PR") | The reporter may already be writing the fix, often waiting for a maintainer to agree first. Warns. |
 | **Assignees, closed, locked, archived** | The basics, all in one place. |
 | **Maintainer pushback** ("working as intended", "won't fix", "duplicate of") | A PR for an issue maintainers rejected won't be merged. |
 | **Blocking labels** (`needs repro`, `wontfix`, `blocked`, `needs discussion`...) and welcoming ones (`good first issue`, `help wanted`) | Labels say whether a PR is wanted right now. |

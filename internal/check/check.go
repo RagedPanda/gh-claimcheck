@@ -58,6 +58,7 @@ func Run(issueFacts facts.Facts) Report {
 		pullRequests(issueFacts),
 		assignees(issueFacts.Issue, issueFacts.Viewer),
 		comments(issueFacts),
+		reporterOffer(issueFacts),
 		repoState(issueFacts.Repo),
 		labels(issueFacts.Issue),
 		outsideMerges(issueFacts.Repo.MergedPRs, issueFacts.Now),
@@ -95,7 +96,7 @@ func viewerInvolved(issueFacts facts.Facts) bool {
 			return true
 		}
 	}
-	return false
+	return strings.EqualFold(issueFacts.Issue.Author, viewer) && text.BodyClaim(issueFacts.Issue.Body) != ""
 }
 
 func issueState(issue facts.Issue) []Finding {
@@ -245,6 +246,27 @@ func comments(issueFacts facts.Facts) []Finding {
 		}
 	}
 	return findings
+}
+
+// reporterOffer reports an offer to fix the issue written into the issue itself,
+// such as a "yes" to "Are you willing to submit a PR?". A claim comment by the same
+// author is already reported by comments, so it takes precedence.
+func reporterOffer(issueFacts facts.Facts) []Finding {
+	issue := issueFacts.Issue
+	line := text.BodyClaim(issue.Body)
+	if line == "" || issue.Author == "" {
+		return nil
+	}
+	if strings.EqualFold(issue.Author, issueFacts.Viewer) {
+		return []Finding{{Level: Info, Title: "You offered to fix it in the issue", Detail: ago(issue.CreatedAt, issueFacts.Now)}}
+	}
+	for _, comment := range issue.Comments {
+		if strings.EqualFold(comment.Author, issue.Author) && text.IsClaim(comment.Body) {
+			return nil
+		}
+	}
+	offer := facts.Comment{Author: issue.Author, Body: line, CreatedAt: issue.CreatedAt}
+	return []Finding{{Level: Warn, Title: "The reporter offered to fix it", Detail: quote(issue.Author, offer, issueFacts.Now) + ". Ask whether they still plan to before you start."}}
 }
 
 func claimFinding(comment facts.Comment, now time.Time) Finding {
